@@ -1,5 +1,5 @@
 {
-  "name": "samlify",
+  "name": "@victor.neiman/samlify",
   "version": "2.7.6",
   "description": "High-level API for Single Sign On (SAML 2.0)",
   "main": "build/index.js",
@@ -26,7 +26,7 @@
   ],
   "author": "tngan",
   "repository": {
-    "url": "https://github.com/tngan/samlify",
+    "url": "https://github.com/lostvicking/samlify",
     "type": "git"
   },
   "license": "MIT",
@@ -38,7 +38,7 @@
     "pako": "^1.0.10",
     "uuid": "^3.3.2",
     "xml": "^1.0.1",
-    "xml-crypto": "^2.1.0",
+    "@victor.neiman/xml-crypto": "^2.1.1",
     "xmldom": "^0.5.0",
     "xpath": "^0.0.27"
   },

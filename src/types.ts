@@ -1,10 +1,10 @@
-import { LoginResponseTemplate } from './libsaml';
+import { LoginResponseTemplate } from "./libsaml";
 
-export { IdentityProvider as IdentityProviderConstructor } from './entity-idp';
-export { IdpMetadata as IdentityProviderMetadata } from './metadata-idp';
+export { IdentityProvider as IdentityProviderConstructor } from "./entity-idp";
+export { IdpMetadata as IdentityProviderMetadata } from "./metadata-idp";
 
-export { ServiceProvider as ServiceProviderConstructor } from './entity-sp';
-export { SpMetadata as ServiceProviderMetadata } from './metadata-sp';
+export { ServiceProvider as ServiceProviderConstructor } from "./entity-sp";
+export { SpMetadata as ServiceProviderMetadata } from "./metadata-sp";
 
 export type MetadataFile = string | Buffer;
 
@@ -25,9 +25,7 @@ export interface MetadataIdpOptions {
   requestSignatureAlgorithm?: string;
 }
 
-export type MetadataIdpConstructor =
-  | MetadataIdpOptions
-  | MetadataFile;
+export type MetadataIdpConstructor = MetadataIdpOptions | MetadataFile;
 
 export interface MetadataSpOptions {
   entityID?: string;
@@ -44,9 +42,7 @@ export interface MetadataSpOptions {
   elementsOrder?: string[];
 }
 
-export type MetadataSpConstructor =
-  | MetadataSpOptions
-  | MetadataFile;
+export type MetadataSpConstructor = MetadataSpOptions | MetadataFile;
 
 export type EntitySetting = ServiceProviderSettings & IdentityProviderSettings;
 
@@ -54,7 +50,7 @@ export interface SignatureConfig {
   prefix?: string;
   location?: {
     reference?: string;
-    action?: 'append' | 'prepend' | 'before' | 'after';
+    action?: "append" | "prepend" | "before" | "after";
   };
 }
 
@@ -90,6 +86,7 @@ export type ServiceProviderSettings = {
   relayState?: string;
   // https://github.com/tngan/samlify/issues/337
   clockDrifts?: [number, number];
+  inclusiveNamespaces?: boolean;
 };
 
 export type IdentityProviderSettings = {
@@ -111,7 +108,7 @@ export type IdentityProviderSettings = {
   privateKey?: string | Buffer;
   privateKeyPass?: string;
   signingCert?: string | Buffer;
-  encryptCert?: string | Buffer; /** todo */
+  encryptCert?: string | Buffer /** todo */;
   nameIDFormat?: string[];
   singleSignOnService?: SSOService[];
   singleLogoutService?: SSOService[];
