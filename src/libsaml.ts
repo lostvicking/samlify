@@ -33,7 +33,6 @@ export interface SignatureConstructor {
   signatureConfig?: any;
   isMessageSigned?: boolean;
   transformationAlgorithms?: string[];
-  inclusiveNamespaces?: boolean;
 }
 
 export interface SignatureVerifierOptions {
@@ -369,32 +368,18 @@ const libSaml = () => {
         signatureConfig,
         isBase64Output = true,
         isMessageSigned = false,
-        inclusiveNamespaces = false,
       } = opts;
-      console.log("inclusiveNamespaces:", inclusiveNamespaces);
       const sig = new SignedXml();
       // Add assertion sections as reference
       if (referenceTagXPath) {
-        if (inclusiveNamespaces) {
-          sig.addReference(
-            referenceTagXPath,
-            opts.transformationAlgorithms,
-            getDigestMethod("http://www.w3.org/2000/09/xmldsig#rsa-sha1"),
-            "",
-            "",
-            ["ds", "saml", "xs", "xsi"],
-            false
-          );
-          console.log(
-            "digest method hardcoded to http://www.w3.org/2000/09/xmldsig#rsa-sha1"
-          );
-        } else {
-          sig.addReference(
-            referenceTagXPath,
-            opts.transformationAlgorithms,
-            getDigestMethod(signatureAlgorithm)
-          );
-        }
+        sig.addReference(
+          referenceTagXPath,
+          opts.transformationAlgorithms,
+          getDigestMethod("http://www.w3.org/2000/09/xmldsig#rsa-sha1")
+        );
+        console.log(
+          "Hard coding digest method to http://www.w3.org/2000/09/xmldsig#rsa-sha1"
+        );
       }
       if (isMessageSigned) {
         sig.addReference(
@@ -408,7 +393,6 @@ const libSaml = () => {
           false
         );
       }
-
       sig.signatureAlgorithm = signatureAlgorithm;
       sig.keyInfoProvider = new this.getKeyInfo(signingCert, signatureConfig);
       sig.signingKey = utility.readPrivateKey(privateKey, privateKeyPass, true);
@@ -417,7 +401,6 @@ const libSaml = () => {
       } else {
         sig.computeSignature(rawSamlMessage);
       }
-      console.log("signed xml: ", sig.getSignedXml());
       return isBase64Output !== false
         ? utility.base64Encode(sig.getSignedXml())
         : sig.getSignedXml();
