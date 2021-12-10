@@ -1,20 +1,20 @@
 /**
- * @file SamlLib.js
- * @author tngan
- * @desc  A simple library including some common functions
- */
+* @file SamlLib.js
+* @author tngan
+* @desc  A simple library including some common functions
+*/
 
-import { DOMParser } from "xmldom";
-import utility, { flattenDeep, isString } from "./utility";
-import { algorithms, wording, namespace } from "./urn";
-import { select, SelectedValue } from "xpath";
-import { MetadataInterface } from "./metadata";
-import * as nrsa from "node-rsa";
-import { SignedXml, FileKeyInfo } from "@victor.neiman/xml-crypto";
-import * as xmlenc from "@authenio/xml-encryption";
-import { extract } from "./extractor";
-import camelCase from "camelcase";
-import { getContext } from "./api";
+import { DOMParser } from '@xmldom/xmldom';
+import utility, { flattenDeep, isString } from './utility';
+import { algorithms, wording, namespace } from './urn';
+import { select } from 'xpath';
+import { MetadataInterface } from './metadata';
+import nrsa, { SigningSchemeHash } from 'node-rsa';
+import { SignedXml, FileKeyInfo } from 'xml-crypto';
+import * as xmlenc from '@authenio/xml-encryption';
+import { extract } from './extractor';
+import camelCase from 'camelcase';
+import { getContext } from './api';
 
 const signatureAlgorithms = algorithms.signature;
 const digestAlgorithms = algorithms.digest;
@@ -59,14 +59,24 @@ export interface LoginResponseAttribute {
   valueXmlnsXsi?: string;
 }
 
+export interface LoginResponseAdditionalTemplates {
+  attributeStatementTemplate?: AttributeStatementTemplate;
+  attributeTemplate?: AttributeTemplate;
+}
+
 export interface BaseSamlTemplate {
   context: string;
 }
 
 export interface LoginResponseTemplate extends BaseSamlTemplate {
   attributes?: LoginResponseAttribute[];
+  additionalTemplates?: LoginResponseAdditionalTemplates;
 }
-export interface LoginRequestTemplate extends BaseSamlTemplate {}
+export interface AttributeStatementTemplate extends BaseSamlTemplate { }
+
+export interface AttributeTemplate extends BaseSamlTemplate { }
+
+export interface LoginRequestTemplate extends BaseSamlTemplate { }
 
 export interface LogoutRequestTemplate extends BaseSamlTemplate {}
 
@@ -82,7 +92,7 @@ export interface LibSamlInterface {
   getQueryParamByType: (type: string) => string;
   createXPath: (local, isExtractAll?: boolean) => string;
   replaceTagsByValue: (rawXML: string, tagValues: any) => string;
-  attributeStatementBuilder: (attributes: LoginResponseAttribute[]) => string;
+  attributeStatementBuilder: (attributes: LoginResponseAttribute[], attributeTemplate: AttributeTemplate, attributeStatementTemplate: AttributeStatementTemplate) => string;
   constructSAMLSignature: (opts: SignatureConstructor) => string;
   verifySignature: (xml: string, opts) => [boolean, any];
   createKeySection: (use: KeyUse, cert: string | Buffer) => {};
@@ -113,6 +123,8 @@ export interface LibSamlInterface {
   nrsaAliasMapping: any;
   defaultLoginRequestTemplate: LoginRequestTemplate;
   defaultLoginResponseTemplate: LoginResponseTemplate;
+  defaultAttributeStatementTemplate: AttributeStatementTemplate;
+  defaultAttributeTemplate: AttributeTemplate;
   defaultLogoutRequestTemplate: LogoutRequestTemplate;
   defaultLogoutResponseTemplate: LogoutResponseTemplate;
 }
@@ -137,9 +149,9 @@ const libSaml = () => {
    *
    */
   const nrsaAliasMapping = {
-    "http://www.w3.org/2000/09/xmldsig#rsa-sha1": "sha1",
-    "http://www.w3.org/2001/04/xmldsig-more#rsa-sha256": "sha256",
-    "http://www.w3.org/2001/04/xmldsig-more#rsa-sha512": "sha512",
+    'http://www.w3.org/2000/09/xmldsig#rsa-sha1': 'pkcs1-sha1',
+    'http://www.w3.org/2001/04/xmldsig-more#rsa-sha256': 'pkcs1-sha256',
+    'http://www.w3.org/2001/04/xmldsig-more#rsa-sha512': 'pkcs1-sha512',
   };
   /**
    * @desc Default login request template
@@ -157,6 +169,23 @@ const libSaml = () => {
     context:
       '<samlp:LogoutRequest xmlns:samlp="urn:oasis:names:tc:SAML:2.0:protocol" xmlns:saml="urn:oasis:names:tc:SAML:2.0:assertion" ID="{ID}" Version="2.0" IssueInstant="{IssueInstant}" Destination="{Destination}"><saml:Issuer>{Issuer}</saml:Issuer><saml:NameID Format="{NameIDFormat}">{NameID}</saml:NameID></samlp:LogoutRequest>',
   };
+
+  /**
+  * @desc Default AttributeStatement template
+  * @type {AttributeStatementTemplate}
+  */
+  const defaultAttributeStatementTemplate = {
+    context: '<saml:AttributeStatement>{Attributes}</saml:AttributeStatement>',
+  };
+
+  /**
+  * @desc Default Attribute template
+  * @type {AttributeTemplate}
+  */
+  const defaultAttributeTemplate = {
+    context: '<saml:Attribute Name="{Name}" NameFormat="{NameFormat}"><saml:AttributeValue xmlns:xs="{ValueXmlnsXs}" xmlns:xsi="{ValueXmlnsXsi}" xsi:type="{ValueXsiType}">{Value}</saml:AttributeValue></saml:Attribute>',
+  };
+
   /**
    * @desc Default login response template
    * @type {LoginResponseTemplate}
@@ -165,6 +194,10 @@ const libSaml = () => {
     context:
       '<samlp:Response xmlns:samlp="urn:oasis:names:tc:SAML:2.0:protocol" xmlns:saml="urn:oasis:names:tc:SAML:2.0:assertion" ID="{ID}" Version="2.0" IssueInstant="{IssueInstant}" Destination="{Destination}" InResponseTo="{InResponseTo}"><saml:Issuer>{Issuer}</saml:Issuer><samlp:Status><samlp:StatusCode Value="{StatusCode}"/></samlp:Status><saml:Assertion xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:xs="http://www.w3.org/2001/XMLSchema" xmlns:saml="urn:oasis:names:tc:SAML:2.0:assertion" ID="{AssertionID}" Version="2.0" IssueInstant="{IssueInstant}"><saml:Issuer>{Issuer}</saml:Issuer><saml:Subject><saml:NameID Format="{NameIDFormat}">{NameID}</saml:NameID><saml:SubjectConfirmation Method="urn:oasis:names:tc:SAML:2.0:cm:bearer"><saml:SubjectConfirmationData NotOnOrAfter="{SubjectConfirmationDataNotOnOrAfter}" Recipient="{SubjectRecipient}" InResponseTo="{InResponseTo}"/></saml:SubjectConfirmation></saml:Subject><saml:Conditions NotBefore="{ConditionsNotBefore}" NotOnOrAfter="{ConditionsNotOnOrAfter}"><saml:AudienceRestriction><saml:Audience>{Audience}</saml:Audience></saml:AudienceRestriction></saml:Conditions>{AuthnStatement}{AttributeStatement}</saml:Assertion></samlp:Response>',
     attributes: [],
+    additionalTemplates: {
+      "attributeStatementTemplate": defaultAttributeStatementTemplate,
+      "attributeTemplate": defaultAttributeTemplate
+    }
   };
   /**
    * @desc Default logout response template
@@ -175,19 +208,19 @@ const libSaml = () => {
       '<samlp:LogoutResponse xmlns:samlp="urn:oasis:names:tc:SAML:2.0:protocol" xmlns:saml="urn:oasis:names:tc:SAML:2.0:assertion" ID="{ID}" Version="2.0" IssueInstant="{IssueInstant}" Destination="{Destination}" InResponseTo="{InResponseTo}"><saml:Issuer>{Issuer}</saml:Issuer><samlp:Status><samlp:StatusCode Value="{StatusCode}"/></samlp:Status></samlp:LogoutResponse>',
   };
   /**
-   * @private
-   * @desc Get the signing scheme alias by signature algorithms, used by the node-rsa module
-   * @param {string} sigAlg    signature algorithm
-   * @return {string/null} signing algorithm short-hand for the module node-rsa
-   */
-  function getSigningScheme(sigAlg?: string): string | null {
+  * @private
+  * @desc Get the signing scheme alias by signature algorithms, used by the node-rsa module
+  * @param {string} sigAlg    signature algorithm
+  * @return {string/null} signing algorithm short-hand for the module node-rsa
+  */
+  function getSigningScheme(sigAlg?: string): SigningSchemeHash {
     if (sigAlg) {
       const algAlias = nrsaAliasMapping[sigAlg];
       if (!(algAlias === undefined)) {
         return algAlias;
       }
     }
-    return nrsaAliasMapping[signatureAlgorithms.RSA_SHA1]; // default value
+    return nrsaAliasMapping[signatureAlgorithms.RSA_SHA1];
   }
   /**
    * @private
@@ -237,6 +270,8 @@ const libSaml = () => {
     getQueryParamByType,
     defaultLoginRequestTemplate,
     defaultLoginResponseTemplate,
+    defaultAttributeStatementTemplate,
+    defaultAttributeTemplate,
     defaultLogoutRequestTemplate,
     defaultLogoutResponseTemplate,
 
@@ -253,37 +288,32 @@ const libSaml = () => {
       return rawXML;
     },
     /**
-     * @desc Helper function to build the AttributeStatement tag
-     * @param  {LoginResponseAttribute} attributes    an array of attribute configuration
-     * @return {string}
-     */
-    attributeStatementBuilder(attributes: LoginResponseAttribute[]): string {
-      const attr = attributes
-        .map(
-          ({
-            name,
-            nameFormat,
-            valueTag,
-            valueXsiType,
-            valueXmlnsXs,
-            valueXmlnsXsi,
-          }) => {
-            const defaultValueXmlnsXs = "http://www.w3.org/2001/XMLSchema";
-            const defaultValueXmlnsXsi =
-              "http://www.w3.org/2001/XMLSchema-instance";
-            return `<saml:Attribute Name="${name}" NameFormat="${nameFormat}"><saml:AttributeValue xmlns:xs="${
-              valueXmlnsXs ? valueXmlnsXs : defaultValueXmlnsXs
-            }" xmlns:xsi="${
-              valueXmlnsXsi ? valueXmlnsXsi : defaultValueXmlnsXsi
-            }" xsi:type="${valueXsiType}">{${tagging(
-              "attr",
-              valueTag
-            )}}</saml:AttributeValue></saml:Attribute>`;
-          }
-        )
-        .join("");
-      return `<saml:AttributeStatement>${attr}</saml:AttributeStatement>`;
+    * @desc Helper function to build the AttributeStatement tag
+    * @param  {LoginResponseAttribute} attributes    an array of attribute configuration
+    * @param  {AttributeTemplate} attributeTemplate    the attribut tag template to be used
+    * @param  {AttributeStatementTemplate} attributeStatementTemplate    the attributStatement tag template to be used
+    * @return {string}
+    */
+    attributeStatementBuilder(
+      attributes: LoginResponseAttribute[],
+      attributeTemplate: AttributeTemplate = defaultAttributeTemplate,
+      attributeStatementTemplate: AttributeStatementTemplate = defaultAttributeStatementTemplate
+    ): string {
+      const attr = attributes.map(({ name, nameFormat, valueTag, valueXsiType, valueXmlnsXs, valueXmlnsXsi }) => {
+        const defaultValueXmlnsXs = 'http://www.w3.org/2001/XMLSchema';
+        const defaultValueXmlnsXsi = 'http://www.w3.org/2001/XMLSchema-instance';
+        let attributeLine = attributeTemplate.context;
+        attributeLine = attributeLine.replace('{Name}', name);
+        attributeLine = attributeLine.replace('{NameFormat}', nameFormat);
+        attributeLine = attributeLine.replace('{ValueXmlnsXs}', valueXmlnsXs ? valueXmlnsXs : defaultValueXmlnsXs);
+        attributeLine = attributeLine.replace('{ValueXmlnsXsi}', valueXmlnsXsi ? valueXmlnsXsi : defaultValueXmlnsXsi);
+        attributeLine = attributeLine.replace('{ValueXsiType}', valueXsiType);
+        attributeLine = attributeLine.replace('{Value}', `{${tagging('attr', valueTag)}}`);
+        return attributeLine;
+      }).join('');
+      return attributeStatementTemplate.context.replace('{Attributes}', attr);
     },
+
     /**
      * @desc Construct the XML signature for POST binding
      * @param  {string} rawSamlMessage      request/response xml string
@@ -433,11 +463,12 @@ const libSaml = () => {
           // normalise the certificate string
           metadataCert = metadataCert.map(utility.normalizeCerString);
 
-          if (certificateNode.length === 0) {
-            throw new Error("NO_SELECTED_CERTIFICATE");
+          // no certificate in node  response nor metadata
+          if (certificateNode.length === 0 && metadataCert.length === 0) {
+            throw new Error('NO_SELECTED_CERTIFICATE');
           }
 
-          // no certificate node in response
+          // certificate node in response
           if (certificateNode.length !== 0) {
             const x509CertificateData = certificateNode[0].firstChild.data;
             const x509Certificate = utility.normalizeCerString(
@@ -458,7 +489,12 @@ const libSaml = () => {
             }
 
             sig.keyInfoProvider = new this.getKeyInfo(x509Certificate);
+
+          } else {
+            // Select first one from metadata
+            sig.keyInfoProvider = new this.getKeyInfo(metadataCert[0]);
           }
+
         }
 
         sig.loadSignature(signatureNode);
@@ -562,13 +598,13 @@ const libSaml = () => {
       };
     },
     /**
-     * @desc Constructs SAML message
-     * @param  {string} octetString               see "Bindings for the OASIS Security Assertion Markup Language (SAML V2.0)" P.17/46
-     * @param  {string} key                       declares the pem-formatted private key
-     * @param  {string} passphrase                passphrase of private key [optional]
-     * @param  {string} signingAlgorithm          signing algorithm
-     * @return {string} message signature
-     */
+    * @desc Constructs SAML message
+    * @param  {string} octetString               see "Bindings for the OASIS Security Assertion Markup Language (SAML V2.0)" P.17/46
+    * @param  {string} key                       declares the pem-formatted private key
+    * @param  {string} passphrase                passphrase of private key [optional]
+    * @param  {string} signingAlgorithm          signing algorithm
+    * @return {string} message signature
+    */
     constructMessageSignature(
       octetString: string,
       key: string,
@@ -578,21 +614,25 @@ const libSaml = () => {
     ) {
       // Default returning base64 encoded signature
       // Embed with node-rsa module
-      const decryptedKey = new nrsa(utility.readPrivateKey(key, passphrase), {
-        signingScheme: getSigningScheme(signingAlgorithm),
-      });
+      const decryptedKey = new nrsa(
+        utility.readPrivateKey(key, passphrase),
+        'private',
+        {
+          signingScheme: getSigningScheme(signingAlgorithm),
+        }
+      );
       const signature = decryptedKey.sign(octetString);
       // Use private key to sign data
       return isBase64 !== false ? signature.toString("base64") : signature;
     },
     /**
-     * @desc Verifies message signature
-     * @param  {Metadata} metadata                 metadata object of identity provider or service provider
-     * @param  {string} octetString                see "Bindings for the OASIS Security Assertion Markup Language (SAML V2.0)" P.17/46
-     * @param  {string} signature                  context of XML signature
-     * @param  {string} verifyAlgorithm            algorithm used to verify
-     * @return {boolean} verification result
-     */
+    * @desc Verifies message signature
+    * @param  {Metadata} metadata                 metadata object of identity provider or service provider
+    * @param  {string} octetString                see "Bindings for the OASIS Security Assertion Markup Language (SAML V2.0)" P.17/46
+    * @param  {string} signature                  context of XML signature
+    * @param  {string} verifyAlgorithm            algorithm used to verify
+    * @return {boolean} verification result
+    */
     verifyMessageSignature(
       metadata,
       octetString: string,
@@ -601,10 +641,8 @@ const libSaml = () => {
     ) {
       const signCert = metadata.getX509Certificate(certUse.signing);
       const signingScheme = getSigningScheme(verifyAlgorithm);
-      const key = new nrsa(utility.getPublicKeyPemFromCertificate(signCert), {
-        signingScheme,
-      });
-      return key.verify(new Buffer(octetString), signature);
+      const key = new nrsa(utility.getPublicKeyPemFromCertificate(signCert), 'public', { signingScheme });
+      return key.verify(Buffer.from(octetString), Buffer.from(signature));
     },
     /**
      * @desc Get the public key in string format
