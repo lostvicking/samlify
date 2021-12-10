@@ -86,7 +86,6 @@ export type ServiceProviderSettings = {
   relayState?: string;
   // https://github.com/tngan/samlify/issues/337
   clockDrifts?: [number, number];
-  inclusiveNamespaces?: boolean;
 };
 
 export type IdentityProviderSettings = {

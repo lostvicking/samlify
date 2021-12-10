@@ -192,7 +192,6 @@ async function base64LoginResponse(
             action: "after",
           },
         },
-        inclusiveNamespaces: spSetting.inclusiveNamespaces,
       });
     }
 
