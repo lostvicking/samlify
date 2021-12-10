@@ -1,11 +1,11 @@
-import esaml2 = require("../index");
-import { readFileSync, writeFileSync } from "fs";
-import test from "ava";
-import * as fs from "fs";
-import * as url from "url";
-import { DOMParser as dom } from "xmldom";
-import { xpath as select } from "@victor.neiman/xml-crypto";
-import { extract } from "../src/extractor";
+import esaml2 = require('../index');
+import { readFileSync, writeFileSync } from 'fs';
+import test from 'ava';
+import * as fs from 'fs';
+import * as url from 'url';
+import { DOMParser as dom } from '@xmldom/xmldom';
+import { xpath as select } from 'xml-crypto';
+import { extract } from '../src/extractor';
 
 const {
   IdentityProvider: identityProvider,
